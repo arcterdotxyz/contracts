@@ -22,19 +22,25 @@ pub mod arcter_access {
     use super::*;
 
     pub fn add_issuer(ctx: Context<AddIssuer>, issuer: Pubkey) -> Result<()> {
+        require!(issuer != Pubkey::default(), AccessError::InvalidKey);
         ctx.accounts.issuer_record.set_inner(Issuer {
             key: issuer,
             bump: ctx.bumps.issuer_record,
         });
+        emit!(IssuerAdded { issuer });
         Ok(())
     }
 
-    pub fn remove_issuer(_ctx: Context<RemoveIssuer>) -> Result<()> {
+    pub fn remove_issuer(ctx: Context<RemoveIssuer>) -> Result<()> {
+        emit!(IssuerRemoved {
+            issuer: ctx.accounts.issuer_record.key,
+        });
         Ok(())
     }
 
     /// Creates or refreshes a wallet's attestation.
     pub fn attest(ctx: Context<Attest>, wallet: Pubkey, roles: u8, expires_at: i64) -> Result<()> {
+        require!(wallet != Pubkey::default(), AccessError::InvalidKey);
         require!(
             roles != 0 && roles & !ALL_ROLES == 0,
             AccessError::InvalidRoles
@@ -62,9 +68,11 @@ pub mod arcter_access {
 
     pub fn revoke(ctx: Context<Revoke>) -> Result<()> {
         let attestation = &mut ctx.accounts.attestation;
+        require!(!attestation.revoked, AccessError::AlreadyRevoked);
         attestation.revoked = true;
         emit!(Revoked {
             wallet: attestation.wallet,
+            issuer: ctx.accounts.issuer.key(),
         });
         Ok(())
     }
@@ -179,6 +187,17 @@ pub struct Attested {
 #[event]
 pub struct Revoked {
     pub wallet: Pubkey,
+    pub issuer: Pubkey,
+}
+
+#[event]
+pub struct IssuerAdded {
+    pub issuer: Pubkey,
+}
+
+#[event]
+pub struct IssuerRemoved {
+    pub issuer: Pubkey,
 }
 
 #[error_code]
@@ -189,4 +208,8 @@ pub enum AccessError {
     InvalidRoles,
     #[msg("The expiry must be in the future")]
     AlreadyExpired,
+    #[msg("The key must not be empty")]
+    InvalidKey,
+    #[msg("This attestation is already revoked")]
+    AlreadyRevoked,
 }
