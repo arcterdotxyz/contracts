@@ -23,6 +23,12 @@ pub mod arcter_config {
     pub fn initialize(ctx: Context<Initialize>, args: InitializeArgs) -> Result<()> {
         require!(args.timelock_delay >= 0, ConfigError::InvalidValue);
         require!(args.restart_gap_secs > 0, ConfigError::InvalidValue);
+        require!(args.restart_grace_secs >= 0, ConfigError::InvalidValue);
+        require!(args.guardian != Pubkey::default(), ConfigError::InvalidValue);
+        require!(
+            args.router_authority != Pubkey::default() && args.usdc_mint != Pubkey::default(),
+            ConfigError::InvalidValue
+        );
         require!(args.swap_fee_bps <= MAX_FEE_BPS, ConfigError::InvalidValue);
         require!(args.rfq_fee_bps <= MAX_FEE_BPS, ConfigError::InvalidValue);
         require!(u64::from(args.spread_share_bps) <= BPS, ConfigError::InvalidValue);
@@ -67,6 +73,7 @@ pub mod arcter_config {
         } else {
             require_keys_eq!(signer, config.admin, ConfigError::Unauthorized);
         }
+        require!(config.paused != paused, ConfigError::NoChange);
         config.paused = paused;
         emit!(PauseChanged { paused, by: signer });
         Ok(())
@@ -402,6 +409,8 @@ pub enum ConfigError {
     InvalidValue,
     #[msg("The time lock on this change has not elapsed")]
     DelayNotElapsed,
+    #[msg("The setting already holds this value")]
+    NoChange,
     #[msg("Arithmetic overflow")]
     MathOverflow,
 }
