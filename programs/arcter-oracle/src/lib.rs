@@ -21,7 +21,8 @@ pub mod arcter_oracle {
             args.max_age_regular > 0
                 && args.max_age_extended >= args.max_age_regular
                 && args.max_age_closed >= args.max_age_extended
-                && args.max_deviation_bps > 0,
+                && args.max_deviation_bps > 0
+                && args.publisher != Pubkey::default(),
             OracleError::InvalidSettings
         );
         ctx.accounts.feed.set_inner(Feed {
@@ -117,7 +118,13 @@ pub mod arcter_oracle {
         } else {
             require_keys_eq!(signer, config.admin, OracleError::Unauthorized);
         }
-        ctx.accounts.feed.paused = paused;
+        let feed = &mut ctx.accounts.feed;
+        feed.paused = paused;
+        emit!(FeedPauseChanged {
+            asset_mint: feed.asset_mint,
+            paused,
+            by: signer,
+        });
         Ok(())
     }
 
@@ -128,7 +135,37 @@ pub mod arcter_oracle {
             ctx.accounts.config.admin,
             OracleError::Unauthorized
         );
-        ctx.accounts.feed.jump_tripped = false;
+        let feed = &mut ctx.accounts.feed;
+        require!(feed.jump_tripped, OracleError::NoJumpToClear);
+        feed.jump_tripped = false;
+        emit!(JumpCleared {
+            asset_mint: feed.asset_mint,
+            price: feed.primary_price,
+        });
+        Ok(())
+    }
+
+    /// Hands a feed to a new publisher, for key rotation or a provider
+    /// change. Stored prices stay, so the new publisher must still post a
+    /// newer report than the last one.
+    pub fn set_publisher(ctx: Context<AdminFeed>, publisher: Pubkey) -> Result<()> {
+        require_keys_eq!(
+            ctx.accounts.authority.key(),
+            ctx.accounts.config.admin,
+            OracleError::Unauthorized
+        );
+        require!(
+            publisher != Pubkey::default(),
+            OracleError::InvalidSettings
+        );
+        let feed = &mut ctx.accounts.feed;
+        let previous = feed.publisher;
+        feed.publisher = publisher;
+        emit!(PublisherChanged {
+            asset_mint: feed.asset_mint,
+            previous,
+            publisher,
+        });
         Ok(())
     }
 }
@@ -315,6 +352,26 @@ pub struct JumpTripped {
     pub reported: u64,
 }
 
+#[event]
+pub struct FeedPauseChanged {
+    pub asset_mint: Pubkey,
+    pub paused: bool,
+    pub by: Pubkey,
+}
+
+#[event]
+pub struct JumpCleared {
+    pub asset_mint: Pubkey,
+    pub price: u64,
+}
+
+#[event]
+pub struct PublisherChanged {
+    pub asset_mint: Pubkey,
+    pub previous: Pubkey,
+    pub publisher: Pubkey,
+}
+
 #[error_code]
 pub enum OracleError {
     #[msg("The signer does not hold the required role")]
@@ -327,4 +384,6 @@ pub enum OracleError {
     OutOfOrder,
     #[msg("This report is dated in the future")]
     FutureReport,
+    #[msg("The jump guard is not tripped on this feed")]
+    NoJumpToClear,
 }
