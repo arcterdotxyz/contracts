@@ -83,12 +83,31 @@ pub mod arcter_vault {
         market.max_clip = args.max_clip;
         market.daily_cap = args.daily_cap;
         market.tvl_cap = args.tvl_cap;
+        emit!(MarketUpdated {
+            market: market.key(),
+            requires_attestation: args.requires_attestation,
+            base_half_spread_bps: args.base_half_spread_bps,
+            max_skew_bps: args.max_skew_bps,
+            inventory_band_bps: args.inventory_band_bps,
+            oracle_band_bps: args.oracle_band_bps,
+            max_clip: args.max_clip,
+            daily_cap: args.daily_cap,
+            tvl_cap: args.tvl_cap,
+        });
         Ok(())
     }
 
     /// Ends trading and deposits for good. Withdrawals carry on.
     pub fn retire_market(ctx: Context<AdminMarket>) -> Result<()> {
-        ctx.accounts.market.status = MarketStatus::Retired;
+        let market = &mut ctx.accounts.market;
+        require!(
+            market.status == MarketStatus::Active,
+            VaultError::MarketRetired
+        );
+        market.status = MarketStatus::Retired;
+        emit!(MarketRetired {
+            market: market.key(),
+        });
         Ok(())
     }
 
@@ -214,6 +233,8 @@ pub mod arcter_vault {
         let usdc_out = math::pro_rata(accounts.usdc_reserve.amount, shares, supply).map_err(fail)?;
         let asset_out =
             math::pro_rata(accounts.asset_reserve.amount, shares, supply).map_err(fail)?;
+        // A burn too small to pay out anything would only destroy shares.
+        require!(usdc_out > 0 || asset_out > 0, VaultError::ZeroAmount);
         require!(
             usdc_out >= min_usdc && asset_out >= min_asset,
             VaultError::SlippageExceeded
@@ -774,6 +795,24 @@ pub struct Fill<'info> {
 pub struct MarketCreated {
     pub market: Pubkey,
     pub asset_mint: Pubkey,
+}
+
+#[event]
+pub struct MarketUpdated {
+    pub market: Pubkey,
+    pub requires_attestation: bool,
+    pub base_half_spread_bps: u16,
+    pub max_skew_bps: u16,
+    pub inventory_band_bps: u16,
+    pub oracle_band_bps: u16,
+    pub max_clip: u64,
+    pub daily_cap: u64,
+    pub tvl_cap: u64,
+}
+
+#[event]
+pub struct MarketRetired {
+    pub market: Pubkey,
 }
 
 #[event]
